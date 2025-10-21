@@ -1,8 +1,8 @@
 // Removed polling variables
 const width = 600;
 const height = 600;
-const R = 275; // Major radius for the torus
-const r = 225;  // Minor radius for the torus
+const R = 360; // Major radius for the torus
+const r = 240;  // Minor radius for the torus
 const grid_size = 100; // N x N grid for Game of Life
 // Removed focal_length and distance for orthographic projection
 const cell_base_size = 12; // Base size for the projected cell
@@ -16,21 +16,21 @@ let next_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
 
 
 // Random initialization
-for (let r = 0; r < grid_size; r++) {
-    for (let c = 0; c < grid_size; c++) {
-        grid[r][c] = Math.random() < 0.2 ? 1 : 0; // 20% chance of being alive
+for (let row_index = 0; row_index < grid_size; row_index++) {
+    for (let col_index = 0; col_index < grid_size; col_index++) {
+        grid[row_index][col_index] = Math.random() < 0.2 ? 1 : 0; // 20% chance of being alive
     }
 }
 
 
 // --- Game of Life Logic ---
-function countNeighbors(r, c) {
+function countNeighbors(row_index, col_index) {
     let count = 0;
     for (let i = -1; i <= 1; i++) {
         for (let j = -1; j <= 1; j++) {
             if (i === 0 && j === 0) continue;
-            const neighbor_r = (r + i + grid_size) % grid_size;
-            const neighbor_c = (c + j + grid_size) % grid_size;
+            const neighbor_r = (row_index + i + grid_size) % grid_size;
+            const neighbor_c = (col_index + j + grid_size) % grid_size;
             count += grid[neighbor_r][neighbor_c];
         }
     }
@@ -40,17 +40,17 @@ function countNeighbors(r, c) {
 // Removed pollServerStatus function
 
 function nextGeneration() {
-    for (let r = 0; r < grid_size; r++) {
-        for (let c = 0; c < grid_size; c++) {
-            const state = grid[r][c];
-            const neighbors = countNeighbors(r, c);
+    for (let row_index = 0; row_index < grid_size; row_index++) {
+        for (let col_index = 0; col_index < grid_size; col_index++) {
+            const state = grid[row_index][col_index];
+            const neighbors = countNeighbors(row_index, col_index);
 
             if (state === 1 && (neighbors < 2 || neighbors > 3)) {
-                next_grid[r][c] = 0; // Dies
+                next_grid[row_index][col_index] = 0; // Dies
             } else if (state === 0 && neighbors === 3) {
-                next_grid[r][c] = 1; // Lives
+                next_grid[row_index][col_index] = 1; // Lives
             } else {
-                next_grid[r][c] = state; // Stays the same
+                next_grid[row_index][col_index] = state; // Stays the same
             }
         }
     }
@@ -64,13 +64,13 @@ function updateFrame(time) {
     const angle_x = time * 0.00005; // Slower rotation
     const angle_y = time * 0.0001; // Slower rotation
 
-    for (let r = 0; r < grid_size; r++) {
-        for (let c = 0; c < grid_size; c++) {
-            const cell_element = document.getElementById(`cell_${r}_${c}`);
+    for (let row_index = 0; row_index < grid_size; row_index++) {
+        for (let col_index = 0; col_index < grid_size; col_index++) {
+            const cell_element = document.getElementById(`cell_${row_index}_${col_index}`);
             if (!cell_element) continue;
 
-            const u = 2 * Math.PI * c / grid_size;
-            const v = 2 * Math.PI * r / grid_size;
+            const u = 2 * Math.PI * col_index / grid_size;
+            const v = 2 * Math.PI * row_index / grid_size;
             
             // Base torus equations
             const x0 = (R + r * Math.cos(v)) * Math.cos(u);
@@ -87,7 +87,7 @@ function updateFrame(time) {
             const z2 = y1 * Math.sin(angle_x) + z1 * Math.cos(angle_x);
 
             // Orthographic projection
-            const scale_factor = 0.5; // Adjust this to fit the torus on screen
+            const scale_factor = 0.25; // Adjust this to fit the torus on screen (zoomed out 2x)
             const sx = width / 2 + x2 * scale_factor;
             const sy = height / 2 + y2 * scale_factor;
 
@@ -106,16 +106,16 @@ function updateFrame(time) {
             const pulse_effect = Math.sin(time * 0.002 + u * 3 + v * 2) * 20; // Slower wave-like pulse
             const final_hue = (hue_base + hue_offset_u + hue_offset_v + pulse_effect) % 360;
 
-            if (grid[r][c] === 1) {
+            if (grid[row_index][col_index] === 1) {
                 cell_element.setAttribute('fill', `hsl(${final_hue}, 100%, 70%)`);
                 cell_element.setAttribute('fill-opacity', 0.8);
                 cell_element.setAttribute('width', projected_cell_size);
                 cell_element.setAttribute('height', projected_cell_size);
             } else {
-                // Small medium gray dot for dead cells
-                const dead_cell_size = projected_cell_size * 0.3; // Make it smaller
-                cell_element.setAttribute('fill', '#888'); // Medium gray
-                cell_element.setAttribute('fill-opacity', 0.3); // Slightly less opaque
+                // Small medium gray dot for dead cells, more visible
+                const dead_cell_size = projected_cell_size * 0.5; // Make it slightly larger
+                cell_element.setAttribute('fill', '#AAA'); // Lighter gray
+                cell_element.setAttribute('fill-opacity', 0.5); // More opaque
                 cell_element.setAttribute('width', dead_cell_size);
                 cell_element.setAttribute('height', dead_cell_size);
             }
@@ -131,10 +131,10 @@ function mainLoop(time) {
 function init() {
     // Dynamically create SVG rect elements for each cell
     const game_of_life_cells_group = document.getElementById('game-of-life-cells');
-    for (let r = 0; r < grid_size; r++) {
-        for (let c = 0; c < grid_size; c++) {
+    for (let row_index = 0; row_index < grid_size; row_index++) {
+        for (let col_index = 0; col_index < grid_size; col_index++) {
             const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            rect.setAttribute('id', `cell_${r}_${c}`);
+            rect.setAttribute('id', `cell_${row_index}_${col_index}`);
             rect.setAttribute('width', '1');
             rect.setAttribute('height', '1');
             rect.setAttribute('fill', '#333');
