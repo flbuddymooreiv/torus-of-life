@@ -1,0 +1,17 @@
+# Python virtual environment
+venv/
+bin/
+include/
+lib/
+pyvenv.cfg
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Log files
+*.log
+
+# Other files not needed in repo
+oneline.sh
+torus.js
