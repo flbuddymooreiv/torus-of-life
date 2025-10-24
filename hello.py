@@ -21,6 +21,17 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             with open('index.html', 'rb') as f:
                 self.wfile.write(f.read())
+            return
+        elif self.path == '/gl-matrix-min.js':
+            try:
+                with open('gl-matrix-min.js', 'rb') as f:
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/javascript")
+                    self.end_headers()
+                    self.wfile.write(f.read())
+                return
+            except FileNotFoundError:
+                self.send_error(404, "File Not Found: gl-matrix-min.js")
         elif self.path == '/game_of_life.js':
             try:
                 with open('game_of_life.js', 'rb') as f:
@@ -28,6 +39,7 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_header("Content-type", "application/javascript")
                     self.end_headers()
                     self.wfile.write(f.read())
+                return
             except FileNotFoundError:
                 self.send_error(404, "File Not Found: game_of_life.js")
 

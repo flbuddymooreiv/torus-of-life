@@ -1,19 +1,29 @@
-// Removed polling variables
-const width = 600;
-const height = 600;
-const R = 360; // Major radius for the torus
-const r = 240;  // Minor radius for the torus
-const grid_size = 100; // N x N grid for Game of Life
-// Removed focal_length and distance for orthographic projection
-const cell_base_size = 12; // Base size for the projected cell
+let mat4 = window.mat4 || (window.glMatrix ? window.glMatrix.mat4 : undefined);
+if (typeof mat4 === 'undefined') {
+    console.error("glMatrix.mat4 is still undefined after loading gl-matrix-min.js");
+    alert("Error: glMatrix.mat4 is not defined. WebGL rendering will not work.");
+}
 
-console.log("Game of Life script loaded and running!");
+const R = 2.0; // Major radius for the torus
+const r = 1.0;  // Minor radius for the torus
+const grid_size = 100; // N x N grid for Game of Life
+
+let gl;
+let program;
+let positionBuffer;
+let colorBuffer;
+let indexBuffer;
+let numVertices;
+let numIndices;
+let cameraZ = -15.0;
+
+let uModelViewMatrixLocation;
+let uProjectionMatrixLocation;
+let aVertexPositionLocation;
+let aVertexColorLocation;
 
 let grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
 let next_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
-
-// --- Game of Life Initialization (Persistent Critters) ---
-
 
 // Random initialization
 for (let row_index = 0; row_index < grid_size; row_index++) {
@@ -22,8 +32,6 @@ for (let row_index = 0; row_index < grid_size; row_index++) {
     }
 }
 
-
-// --- Game of Life Logic ---
 function countNeighbors(row_index, col_index) {
     let count = 0;
     for (let i = -1; i <= 1; i++) {
@@ -36,8 +44,6 @@ function countNeighbors(row_index, col_index) {
     }
     return count;
 }
-
-// Removed pollServerStatus function
 
 function nextGeneration() {
     for (let row_index = 0; row_index < grid_size; row_index++) {
@@ -57,70 +63,203 @@ function nextGeneration() {
     grid = next_grid.map(arr => arr.slice()); // Copy next_grid to grid
 }
 
-// --- Animation and Rendering ---
+function checkGLError() {
+    let error = gl.getError();
+    while (error !== gl.NO_ERROR) {
+        let errorStr = "UNKNOWN_ERROR";
+        switch (error) {
+            case gl.INVALID_ENUM: errorStr = "INVALID_ENUM"; break;
+            case gl.INVALID_VALUE: errorStr = "INVALID_VALUE"; break;
+            case gl.INVALID_OPERATION: errorStr = "INVALID_OPERATION"; break;
+            case gl.OUT_OF_MEMORY: errorStr = "OUT_OF_MEMORY"; break;
+            case gl.INVALID_FRAMEBUFFER_OPERATION: errorStr = "INVALID_FRAMEBUFFER_OPERATION"; break;
+        }
+        console.error("WebGL Error: " + errorStr + " (" + error + ")");
+        error = gl.getError();
+    }
+}
+
+function initWebGL() {
+    const canvas = document.getElementById('torusCanvas');
+    gl = canvas.getContext('webgl');
+    checkGLError(); // Check for errors after getting context
+
+    if (!gl) {
+        alert('Unable to initialize WebGL. Your browser or machine may not support it.');
+        return;
+    }
+
+    const vsSource = `
+        attribute vec4 aVertexPosition;
+        attribute vec4 aVertexColor;
+
+        uniform mat4 uModelViewMatrix;
+        uniform mat4 uProjectionMatrix;
+
+        varying lowp vec4 vColor;
+
+        void main(void) {
+            gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
+            gl_PointSize = 3.0;
+            vColor = aVertexColor;
+        }
+    `;
+
+    const fsSource = `
+        varying lowp vec4 vColor;
+
+        void main(void) {
+            gl_FragColor = vColor;
+        }
+    `;
+
+    const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+    program = shaderProgram;
+    checkGLError();
+
+    aVertexPositionLocation = gl.getAttribLocation(program, 'aVertexPosition');
+    aVertexColorLocation = gl.getAttribLocation(program, 'aVertexColor');
+    uProjectionMatrixLocation = gl.getUniformLocation(program, 'uProjectionMatrix');
+    uModelViewMatrixLocation = gl.getUniformLocation(program, 'uModelViewMatrix');
+    checkGLError();
+
+    positionBuffer = gl.createBuffer();
+    colorBuffer = gl.createBuffer();
+    indexBuffer = gl.createBuffer();
+    checkGLError();
+
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.clearDepth(1.0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    checkGLError();
+}
+
+function initShaderProgram(gl, vsSource, fsSource) {
+    const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+    const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+    const shaderProgram = gl.createProgram();
+    gl.attachShader(shaderProgram, vertexShader);
+    gl.attachShader(shaderProgram, fragmentShader);
+    checkGLError();
+    gl.linkProgram(shaderProgram);
+    checkGLError();
+
+    if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+        alert('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
+        return null;
+    }
+    return shaderProgram;
+}
+
+function loadShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    checkGLError();
+    gl.compileShader(shader);
+    checkGLError();
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        alert('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+    }
+    return shader;
+}
+
+function initTorusGeometry() {
+    const positions = [];
+    const colors = [];
+
+    const num_segments_u = grid_size;
+    const num_segments_v = grid_size;
+
+    for (let i = 0; i <= num_segments_u; i++) {
+        const u_angle = i * 2 * Math.PI / num_segments_u;
+        for (let j = 0; j <= num_segments_v; j++) {
+            const v_angle = j * 2 * Math.PI / num_segments_v;
+
+            const x = (R + r * Math.cos(v_angle)) * Math.cos(u_angle);
+            const y = (R + r * Math.cos(v_angle)) * Math.sin(u_angle);
+            const z = r * Math.sin(v_angle);
+
+            positions.push(x, y, z);
+            colors.push(0.5, 0.5, 0.5, 1.0); // Default gray color
+        }
+    }
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+    checkGLError();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.DYNAMIC_DRAW);
+    checkGLError();
+
+    numVertices = positions.length / 3;
+}
+
 function updateFrame(time) {
-    nextGeneration(); // Advance Game of Life
+    nextGeneration();
 
-    const angle_x = time * 0.00005; // Slower rotation
-    const angle_y = time * 0.0001; // Slower rotation
+    const angle_x = time * 0.00005;
+    const angle_y = time * 0.0001;
 
-    for (let row_index = 0; row_index < grid_size; row_index++) {
-        for (let col_index = 0; col_index < grid_size; col_index++) {
-            const cell_element = document.getElementById(`cell_${row_index}_${col_index}`);
-            if (!cell_element) continue;
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    checkGLError();
 
-            const u = 2 * Math.PI * col_index / grid_size;
-            const v = 2 * Math.PI * row_index / grid_size;
-            
-            // Base torus equations
-            const x0 = (R + r * Math.cos(v)) * Math.cos(u);
-            const y0 = (R + r * Math.cos(v)) * Math.sin(u);
-            const z0 = r * Math.sin(v);
+    const colors = [];
+    for (let row_index = 0; row_index <= grid_size; row_index++) {
+        for (let col_index = 0; col_index <= grid_size; col_index++) {
+            const grid_row = row_index % grid_size;
+            const grid_col = col_index % grid_size;
 
-            // Rotate for a better view (around X and Y axes)
-            const x1 = x0 * Math.cos(angle_y) - z0 * Math.sin(angle_y);
-            const y1 = y0;
-            const z1 = x0 * Math.sin(angle_y) + z0 * Math.cos(angle_y);
-
-            const x2 = x1;
-            const y2 = y1 * Math.cos(angle_x) - z1 * Math.sin(angle_x);
-            const z2 = y1 * Math.sin(angle_x) + z1 * Math.cos(angle_x);
-
-            // Orthographic projection
-            const scale_factor = 0.25; // Adjust this to fit the torus on screen (zoomed out 2x)
-            const sx = width / 2 + x2 * scale_factor;
-            const sy = height / 2 + y2 * scale_factor;
-
-            // Calculate projected cell size
-            const projected_cell_size = cell_base_size * scale_factor;
-
-            // Update cell position and color
-            cell_element.setAttribute('x', sx - projected_cell_size / 2);
-            cell_element.setAttribute('y', sy - projected_cell_size / 2);
-            cell_element.setAttribute('width', projected_cell_size);
-            cell_element.setAttribute('height', projected_cell_size);
-
-            const hue_base = (time * 0.005) % 360; // Slower hue shift
-            const hue_offset_u = (u / (2 * Math.PI)) * 180; 
-            const hue_offset_v = (v / (2 * Math.PI)) * 180; 
-            const pulse_effect = Math.sin(time * 0.002 + u * 3 + v * 2) * 20; // Slower wave-like pulse
+            const hue_base = (time * 0.005) % 360;
+            const u = 2 * Math.PI * (col_index % grid_size) / grid_size;
+            const v = 2 * Math.PI * (row_index % grid_size) / grid_size;
+            const hue_offset_u = (u / (2 * Math.PI)) * 180;
+            const hue_offset_v = (v / (2 * Math.PI)) * 180;
+            const pulse_effect = Math.sin(time * 0.002 + u * 3 + v * 2) * 20;
             const final_hue = (hue_base + hue_offset_u + hue_offset_v + pulse_effect) % 360;
 
-            if (grid[row_index][col_index] === 1) {
-                cell_element.setAttribute('fill', `hsl(${final_hue}, 100%, 70%)`);
-                cell_element.setAttribute('fill-opacity', 0.8);
-                cell_element.setAttribute('width', projected_cell_size);
-                cell_element.setAttribute('height', projected_cell_size);
+            let r_color, g_color, b_color;
+            if (grid[grid_row][grid_col] === 1) {
+                const h = final_hue / 60;
+                const s = 1;
+                const l = 0.8;
+                const c_val = (1 - Math.abs(2 * l - 1)) * s;
+                const x_val = c_val * (1 - Math.abs(h % 2 - 1));
+                const m_val = l - c_val / 2;
+
+                if (0 <= h && h < 1) { r_color = c_val; g_color = x_val; b_color = 0; }
+                else if (1 <= h && h < 2) { r_color = x_val; g_color = c_val; b_color = 0; }
+                else if (2 <= h && h < 3) { r_color = 0; g_color = c_val; b_color = x_val; }
+                else if (3 <= h && h < 4) { r_color = 0; g_color = x_val; b_color = c_val; }
+                else if (4 <= h && h < 5) { r_color = x_val; g_color = 0; b_color = c_val; }
+                else if (5 <= h && h < 6) { r_color = c_val; g_color = 0; b_color = x_val; }
+                else { r_color = 0; g_color = 0; b_color = 0; }
+
+                colors.push(r_color + m_val, g_color + m_val, b_color + m_val, 0.8);
             } else {
-                // Small medium gray dot for dead cells, more visible
-                const dead_cell_size = projected_cell_size * 0.5; // Make it slightly larger
-                cell_element.setAttribute('fill', '#AAA'); // Lighter gray
-                cell_element.setAttribute('fill-opacity', 0.5); // More opaque
-                cell_element.setAttribute('width', dead_cell_size);
-                cell_element.setAttribute('height', dead_cell_size);
+                colors.push(0.3, 0.3, 0.3, 0.5);
             }
         }
     }
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.DYNAMIC_DRAW);
+
+    let modelViewMatrix = glMatrix.mat4.create();
+    modelViewMatrix = glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, cameraZ]);
+    modelViewMatrix = glMatrix.mat4.rotate(modelViewMatrix, modelViewMatrix, angle_x, [1, 0, 0]);
+    modelViewMatrix = glMatrix.mat4.rotate(modelViewMatrix, modelViewMatrix, angle_y, [0, 1, 0]);
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uModelViewMatrix'), false, modelViewMatrix);
+
+    gl.drawArrays(gl.POINTS, 0, numVertices);
+    checkGLError();
 }
 
 function mainLoop(time) {
@@ -128,20 +267,58 @@ function mainLoop(time) {
     requestAnimationFrame(mainLoop);
 }
 
+function resize() {
+    const canvas = document.getElementById('torusCanvas');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    const projectionMatrix = glMatrix.mat4.perspective(glMatrix.mat4.create(), 45 * Math.PI / 180, gl.canvas.clientWidth / gl.canvas.clientHeight, 0.1, 1000.0);
+    gl.uniformMatrix4fv(uProjectionMatrixLocation, false, projectionMatrix);
+}
+
 function init() {
-    // Dynamically create SVG rect elements for each cell
-    const game_of_life_cells_group = document.getElementById('game-of-life-cells');
-    for (let row_index = 0; row_index < grid_size; row_index++) {
-        for (let col_index = 0; col_index < grid_size; col_index++) {
-            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            rect.setAttribute('id', `cell_${row_index}_${col_index}`);
-            rect.setAttribute('width', '1');
-            rect.setAttribute('height', '1');
-            rect.setAttribute('fill', '#333');
-            rect.setAttribute('stroke', 'none');
-            game_of_life_cells_group.appendChild(rect);
-        }
-    }
+    initWebGL();
+    checkGLError();
+    initTorusGeometry();
+    checkGLError();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.vertexAttribPointer(
+        aVertexPositionLocation,
+        3,
+        gl.FLOAT,
+        false,
+        0,
+        0
+    );
+    gl.enableVertexAttribArray(aVertexPositionLocation);
+    checkGLError();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.vertexAttribPointer(
+        aVertexColorLocation,
+        4,
+        gl.FLOAT,
+        false,
+        0,
+        0
+    );
+    gl.enableVertexAttribArray(aVertexColorLocation);
+    checkGLError();
+
+    gl.useProgram(program);
+    checkGLError();
+
+    resize();
+    window.onresize = resize;
+
+    const canvas = document.getElementById('torusCanvas');
+    canvas.addEventListener('wheel', event => {
+        event.preventDefault();
+        cameraZ -= event.deltaY * 0.01;
+        cameraZ = Math.max(-20, Math.min(-2, cameraZ));
+    });
+
     requestAnimationFrame(mainLoop);
 }
 
