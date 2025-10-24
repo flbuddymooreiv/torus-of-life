@@ -12,5 +12,63 @@
     <script type="text/javascript" src="gl-matrix-min.js"></script>
 
     <script type="text/javascript" src="game_of_life.js"></script>
+
+    <div style="position: absolute; top: 10px; left: 10px; color: white; font-family: monospace;">
+        Seed: <input type="text" id="seedInput" value="1" style="width: 100px;">
+        <button id="applySeedButton">Apply Seed</button>
+        <button id="newRandomSeedButton">New Random Seed</button>
+        <br>Generation: <span id="generationDisplay">0</span>
+    </div>
+
+    <script type="text/javascript">
+        function getQueryParam(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        function setQueryParam(name, value) {
+            const urlParams = new URLSearchParams(window.location.search);
+            urlParams.set(name, value);
+            window.history.replaceState({}, '', `${window.location.pathname}?${urlParams}`);
+        }
+
+        window.addEventListener('DOMContentLoaded', (event) => {
+            const seedInput = document.getElementById('seedInput');
+            const applySeedButton = document.getElementById('applySeedButton');
+            const newRandomSeedButton = document.getElementById('newRandomSeedButton');
+
+            let initialSeed = getQueryParam('seed');
+            if (initialSeed) {
+                seedInput.value = initialSeed;
+                seedRNG(parseInt(initialSeed, 10));
+            } else {
+                // Generate a random seed if none is specified
+                const randomSeed = Math.floor(Math.random() * 1000000);
+                seedInput.value = randomSeed;
+                setQueryParam('seed', randomSeed); // Update URL with the random seed
+                seedRNG(randomSeed);
+            }
+
+            // Re-initialize the grid after setting the seed from URL or default
+            initializeGrid();
+
+            applySeedButton.addEventListener('click', () => {
+                const newSeed = parseInt(seedInput.value, 10);
+                if (!isNaN(newSeed)) {
+                    setQueryParam('seed', newSeed);
+                    restartGame(); // Call restartGame instead of reloading
+                } else {
+                    alert('Please enter a valid number for the seed.');
+                }
+            });
+
+            newRandomSeedButton.addEventListener('click', () => {
+                const newRandomSeed = Math.floor(Math.random() * 233280); // Max value for current LCG
+                seedInput.value = newRandomSeed;
+                setQueryParam('seed', newRandomSeed);
+                restartGame();
+            });
+        });
+    </script>
 </body>
 </html>

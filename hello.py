@@ -7,6 +7,9 @@ import math
 import signal
 
 
+import urllib.parse
+
+
 PORT = 8899
 
 httpd = None # Global variable for the server instance
@@ -15,14 +18,17 @@ httpd = None # Global variable for the server instance
 
 class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/torus':
+        parsed_path = urllib.parse.urlparse(self.path)
+        path_without_query = parsed_path.path
+
+        if path_without_query == '/torus':
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
             with open('index.html', 'rb') as f:
                 self.wfile.write(f.read())
             return
-        elif self.path == '/gl-matrix-min.js':
+        elif path_without_query == '/gl-matrix-min.js':
             try:
                 with open('gl-matrix-min.js', 'rb') as f:
                     self.send_response(200)
@@ -32,7 +38,7 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             except FileNotFoundError:
                 self.send_error(404, "File Not Found: gl-matrix-min.js")
-        elif self.path == '/game_of_life.js':
+        elif path_without_query == '/game_of_life.js':
             try:
                 with open('game_of_life.js', 'rb') as f:
                     self.send_response(200)

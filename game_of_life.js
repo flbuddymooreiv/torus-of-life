@@ -16,21 +16,45 @@ let indexBuffer;
 let numVertices;
 let numIndices;
 let cameraZ = -15.0;
+let generation = 0; // Add generation counter
+
+function updateGenerationDisplay() {
+    const generationSpan = document.getElementById('generationDisplay');
+    if (generationSpan) {
+        generationSpan.textContent = generation;
+    }
+}
 
 let uModelViewMatrixLocation;
 let uProjectionMatrixLocation;
 let aVertexPositionLocation;
 let aVertexColorLocation;
 
+let currentSeed = 1; // Default seed
+function seedRNG(seed) {
+    currentSeed = seed;
+}
+
+function getRandom() {
+    // Simple LCG: https://en.wikipedia.org/wiki/Linear_congruential_generator
+    currentSeed = (currentSeed * 9301 + 49297) % 233280;
+    return currentSeed / 233280;
+}
+
 let grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
 let next_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
 
-// Random initialization
-for (let row_index = 0; row_index < grid_size; row_index++) {
-    for (let col_index = 0; col_index < grid_size; col_index++) {
-        grid[row_index][col_index] = Math.random() < 0.2 ? 1 : 0; // 20% chance of being alive
+function initializeGrid() {
+    for (let row_index = 0; row_index < grid_size; row_index++) {
+        for (let col_index = 0; col_index < grid_size; col_index++) {
+            grid[row_index][col_index] = getRandom() < 0.2 ? 1 : 0; // 20% chance of being alive
+        }
     }
 }
+
+// Initial call to set up the grid
+// This will be called again from index.html after parsing the URL seed
+initializeGrid();
 
 function countNeighbors(row_index, col_index) {
     let count = 0;
@@ -46,6 +70,8 @@ function countNeighbors(row_index, col_index) {
 }
 
 function nextGeneration() {
+    generation++;
+    updateGenerationDisplay();
     for (let row_index = 0; row_index < grid_size; row_index++) {
         for (let col_index = 0; col_index < grid_size; col_index++) {
             const state = grid[row_index][col_index];
@@ -61,6 +87,17 @@ function nextGeneration() {
         }
     }
     grid = next_grid.map(arr => arr.slice()); // Copy next_grid to grid
+}
+
+function restartGame() {
+    generation = 0;
+    updateGenerationDisplay();
+    // Clear the existing grid and re-initialize
+    grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
+    next_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
+    initializeGrid();
+    // Re-render the first frame with the new grid
+    updateFrame(0); // Pass 0 for time to reset animation
 }
 
 function checkGLError() {
@@ -90,8 +127,10 @@ function initWebGL() {
     }
 
     const vsSource = `
+        precision mediump float; // Add precision qualifier
         attribute vec4 aVertexPosition;
         attribute vec4 aVertexColor;
+        attribute float aCellState; // New attribute for cell state
 
         uniform mat4 uModelViewMatrix;
         uniform mat4 uProjectionMatrix;
@@ -100,16 +139,23 @@ function initWebGL() {
 
         void main(void) {
             gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
-            gl_PointSize = 3.0;
+            gl_PointSize = aCellState > 0.5 ? 8.0 : 2.0; // Bigger for live, smaller for dead
             vColor = aVertexColor;
         }
     `;
 
     const fsSource = `
+        precision mediump float; // Add precision qualifier
         varying lowp vec4 vColor;
 
         void main(void) {
-            gl_FragColor = vColor;
+            // Create a spherical appearance for points
+            float dist = distance(gl_PointCoord, vec2(0.5, 0.5));
+            if (dist > 0.5) {
+                discard;
+            }
+            // Apply a simple radial gradient for a 3D look
+            gl_FragColor = vColor * (1.0 - dist * 0.5);
         }
     `;
 
@@ -119,12 +165,14 @@ function initWebGL() {
 
     aVertexPositionLocation = gl.getAttribLocation(program, 'aVertexPosition');
     aVertexColorLocation = gl.getAttribLocation(program, 'aVertexColor');
+    aCellStateLocation = gl.getAttribLocation(program, 'aCellState'); // Get location for new attribute
     uProjectionMatrixLocation = gl.getUniformLocation(program, 'uProjectionMatrix');
     uModelViewMatrixLocation = gl.getUniformLocation(program, 'uModelViewMatrix');
     checkGLError();
 
     positionBuffer = gl.createBuffer();
     colorBuffer = gl.createBuffer();
+    cellStateBuffer = gl.createBuffer(); // New buffer for cell states
     indexBuffer = gl.createBuffer();
     checkGLError();
 
@@ -242,14 +290,26 @@ function updateFrame(time) {
                 else if (5 <= h && h < 6) { r_color = c_val; g_color = 0; b_color = x_val; }
                 else { r_color = 0; g_color = 0; b_color = 0; }
 
-                colors.push(r_color + m_val, g_color + m_val, b_color + m_val, 0.8);
+                colors.push(r_color + m_val, g_color + m_val, b_color + m_val, 0.6); // Made translucent
             } else {
-                colors.push(0.3, 0.3, 0.3, 0.5);
+                colors.push(0.3, 0.3, 0.3, 0.8); // Increased alpha for dead cells
             }
         }
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.DYNAMIC_DRAW);
+
+    // Populate and bind cellStateBuffer
+    const cellStates = [];
+    for (let row_index = 0; row_index <= grid_size; row_index++) {
+        for (let col_index = 0; col_index <= grid_size; col_index++) {
+            const grid_row = row_index % grid_size;
+            const grid_col = col_index % grid_size;
+            cellStates.push(grid[grid_row][grid_col]); // 1.0 for alive, 0.0 for dead
+        }
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, cellStateBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cellStates), gl.DYNAMIC_DRAW);
 
     let modelViewMatrix = glMatrix.mat4.create();
     modelViewMatrix = glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, cameraZ]);
@@ -304,6 +364,18 @@ function init() {
         0
     );
     gl.enableVertexAttribArray(aVertexColorLocation);
+    checkGLError();
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, cellStateBuffer);
+    gl.vertexAttribPointer(
+        aCellStateLocation,
+        1, // It's a single float
+        gl.FLOAT,
+        false,
+        0,
+        0
+    );
+    gl.enableVertexAttribArray(aCellStateLocation);
     checkGLError();
 
     gl.useProgram(program);
