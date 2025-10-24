@@ -290,7 +290,7 @@ function updateFrame(time) {
                 else if (5 <= h && h < 6) { r_color = c_val; g_color = 0; b_color = x_val; }
                 else { r_color = 0; g_color = 0; b_color = 0; }
 
-                colors.push(r_color + m_val, g_color + m_val, b_color + m_val, 0.6); // Made translucent
+                colors.push(r_color + m_val, g_color + m_val, b_color + m_val, 0.9); // Made brighter
             } else {
                 colors.push(0.3, 0.3, 0.3, 0.8); // Increased alpha for dead cells
             }
