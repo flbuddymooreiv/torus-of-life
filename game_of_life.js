@@ -15,8 +15,20 @@ let colorBuffer;
 let indexBuffer;
 let numVertices;
 let numIndices;
-let cameraZ = -15.0;
+let cameraPosition = [0, 0, 15];
+let cameraFront = [0, 0, -1];
+let cameraUp = [0, 1, 0];
+let yaw = -90;
+let pitch = 0;
+let lastX = 0;
+let lastY = 0;
+let isDragging = false;
+let isRightDragging = false;
 let generation = 0; // Add generation counter
+
+const keyState = {};
+window.addEventListener('keydown', (e) => { keyState[e.key] = true; });
+window.addEventListener('keyup', (e) => { keyState[e.key] = false; });
 
 function updateGenerationDisplay() {
     const generationSpan = document.getElementById('generationDisplay');
@@ -326,9 +338,6 @@ function initTorusGeometry() {
 function updateFrame(time) {
     nextGeneration();
 
-    const angle_x = time * 0.00005;
-    const angle_y = time * 0.0001;
-
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     checkGLError();
 
@@ -385,9 +394,7 @@ function updateFrame(time) {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cellStates), gl.DYNAMIC_DRAW);
 
     let modelViewMatrix = glMatrix.mat4.create();
-    modelViewMatrix = glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, cameraZ]);
-    modelViewMatrix = glMatrix.mat4.rotate(modelViewMatrix, modelViewMatrix, angle_x, [1, 0, 0]);
-    modelViewMatrix = glMatrix.mat4.rotate(modelViewMatrix, modelViewMatrix, angle_y, [0, 1, 0]);
+    glMatrix.mat4.lookAt(modelViewMatrix, cameraPosition, [cameraPosition[0] + cameraFront[0], cameraPosition[1] + cameraFront[1], cameraPosition[2] + cameraFront[2]], cameraUp);
 
     gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uModelViewMatrix'), false, modelViewMatrix);
 
@@ -396,6 +403,31 @@ function updateFrame(time) {
 }
 
 function mainLoop(time) {
+    const cameraSpeed = 0.05;
+    if (keyState['w']) {
+        cameraPosition[0] += cameraSpeed * cameraFront[0];
+        cameraPosition[1] += cameraSpeed * cameraFront[1];
+        cameraPosition[2] += cameraSpeed * cameraFront[2];
+    }
+    if (keyState['s']) {
+        cameraPosition[0] -= cameraSpeed * cameraFront[0];
+        cameraPosition[1] -= cameraSpeed * cameraFront[1];
+        cameraPosition[2] -= cameraSpeed * cameraFront[2];
+    }
+    if (keyState['a']) {
+        const cameraRight = glMatrix.vec3.cross([], cameraFront, cameraUp);
+        glMatrix.vec3.normalize(cameraRight, cameraRight);
+        cameraPosition[0] -= cameraRight[0] * cameraSpeed;
+        cameraPosition[1] -= cameraRight[1] * cameraSpeed;
+        cameraPosition[2] -= cameraRight[2] * cameraSpeed;
+    }
+    if (keyState['d']) {
+        const cameraRight = glMatrix.vec3.cross([], cameraFront, cameraUp);
+        glMatrix.vec3.normalize(cameraRight, cameraRight);
+        cameraPosition[0] += cameraRight[0] * cameraSpeed;
+        cameraPosition[1] += cameraRight[1] * cameraSpeed;
+        cameraPosition[2] += cameraRight[2] * cameraSpeed;
+    }
     updateFrame(time);
     requestAnimationFrame(mainLoop);
 }
@@ -458,10 +490,65 @@ function init() {
     window.onresize = resize;
 
     const canvas = document.getElementById('torusCanvas');
-    canvas.addEventListener('wheel', event => {
-        event.preventDefault();
-        cameraZ -= event.deltaY * 0.01;
-        cameraZ = Math.max(-20, Math.min(-2, cameraZ));
+
+
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    canvas.addEventListener('mousedown', e => {
+        if (e.button === 0) {
+            isDragging = true;
+        } else if (e.button === 2) {
+            isRightDragging = true;
+        }
+        lastX = e.clientX;
+        lastY = e.clientY;
+    });
+
+    canvas.addEventListener('mouseup', e => {
+        if (e.button === 0) {
+            isDragging = false;
+        } else if (e.button === 2) {
+            isRightDragging = false;
+        }
+    });
+
+    canvas.addEventListener('mousemove', e => {
+        if (isDragging) {
+            const xoffset = e.clientX - lastX;
+            const yoffset = lastY - e.clientY; // Reversed since y-coordinates go from bottom to top
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            const canvas = document.getElementById('torusCanvas');
+            yaw += (xoffset / canvas.width) * 360;
+            pitch += (yoffset / canvas.height) * 360;
+
+            if (pitch > 89) pitch = 89;
+            if (pitch < -89) pitch = -89;
+
+            const front = [];
+            front[0] = Math.cos(glMatrix.glMatrix.toRadian(yaw)) * Math.cos(glMatrix.glMatrix.toRadian(pitch));
+            front[1] = Math.sin(glMatrix.glMatrix.toRadian(pitch));
+            front[2] = Math.sin(glMatrix.glMatrix.toRadian(yaw)) * Math.cos(glMatrix.glMatrix.toRadian(pitch));
+            glMatrix.vec3.normalize(cameraFront, front);
+        } else if (isRightDragging) {
+            const xoffset = e.clientX - lastX;
+            const yoffset = lastY - e.clientY;
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            const cameraSpeed = 0.05;
+            const cameraRight = glMatrix.vec3.cross([], cameraFront, cameraUp);
+            glMatrix.vec3.normalize(cameraRight, cameraRight);
+
+            cameraPosition[0] += cameraRight[0] * xoffset * cameraSpeed;
+            cameraPosition[1] += cameraRight[1] * xoffset * cameraSpeed;
+            cameraPosition[2] += cameraRight[2] * xoffset * cameraSpeed;
+
+            cameraPosition[0] += cameraUp[0] * yoffset * cameraSpeed;
+            cameraPosition[1] += cameraUp[1] * yoffset * cameraSpeed;
+            cameraPosition[2] += cameraUp[2] * yoffset * cameraSpeed;
+        }
     });
 
     requestAnimationFrame(mainLoop);
