@@ -43,6 +43,61 @@ function getRandom() {
 
 let grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
 let next_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
+let previous_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
+let two_generations_ago_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
+
+let stalledStates = [];
+
+function areGridsEqual(grid1, grid2) {
+    if (!grid1 || !grid2 || grid1.length !== grid2.length || grid1.length === 0 || grid2.length === 0) {
+        return false;
+    }
+    for (let i = 0; i < grid1.length; i++) {
+        if (grid1[i].length !== grid2[i].length) {
+            return false;
+        }
+        for (let j = 0; j < grid1[i].length; j++) {
+            if (grid1[i][j] !== grid2[i][j]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+function recordAndDisplayStalledState(gen, seed) {
+    stalledStates.push({ generation: gen, seed: seed });
+    stalledStates.sort((a, b) => b.generation - a.generation);
+    updateStalledStatesTable();
+}
+
+function updateStalledStatesTable() {
+    const logContainer = document.getElementById('stalledStatesLog');
+    if (logContainer) {
+        const tbody = logContainer.querySelector('tbody');
+        tbody.innerHTML = ''; // Clear the table
+        stalledStates.forEach(state => {
+            const newRow = document.createElement('tr');
+            newRow.innerHTML = `
+                <td>${state.generation}</td>
+                <td><button onclick="loadAndRunSeed(${state.seed})">Load Seed ${state.seed}</button></td>
+            `;
+            tbody.appendChild(newRow);
+        });
+    }
+}
+
+function loadAndRunSeed(seed) {
+    document.getElementById('seedInput').value = seed;
+    setQueryParam('seed', seed);
+    restartGame();
+}
+
+function setQueryParam(name, value) {
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set(name, value);
+    window.history.replaceState({}, '', `${window.location.pathname}?${urlParams}`);
+}
 
 function initializeGrid() {
     for (let row_index = 0; row_index < grid_size; row_index++) {
@@ -72,6 +127,10 @@ function countNeighbors(row_index, col_index) {
 function nextGeneration() {
     generation++;
     updateGenerationDisplay();
+
+    two_generations_ago_grid = previous_grid.map(arr => arr.slice());
+    previous_grid = grid.map(arr => arr.slice());
+
     for (let row_index = 0; row_index < grid_size; row_index++) {
         for (let col_index = 0; col_index < grid_size; col_index++) {
             const state = grid[row_index][col_index];
@@ -87,14 +146,28 @@ function nextGeneration() {
         }
     }
     grid = next_grid.map(arr => arr.slice()); // Copy next_grid to grid
+
+    if (areGridsEqual(grid, two_generations_ago_grid)) {
+        recordAndDisplayStalledState(generation, currentSeed);
+        const newRandomSeed = Math.floor(Math.random() * 233280);
+        document.getElementById('seedInput').value = newRandomSeed;
+        setQueryParam('seed', newRandomSeed);
+        restartGame(false); // Don't clear the log
+    }
 }
 
-function restartGame() {
+function restartGame(clearLog = true) {
     generation = 0;
     updateGenerationDisplay();
     // Clear the existing grid and re-initialize
     grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
     next_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
+    previous_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
+    two_generations_ago_grid = Array(grid_size).fill(0).map(() => Array(grid_size).fill(0));
+    if (clearLog) {
+        stalledStates = [];
+        updateStalledStatesTable();
+    }
     initializeGrid();
     // Re-render the first frame with the new grid
     updateFrame(0); // Pass 0 for time to reset animation
